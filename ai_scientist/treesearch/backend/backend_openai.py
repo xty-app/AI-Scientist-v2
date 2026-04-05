@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import time
 
 from .utils import FunctionSpec, OutputType, opt_messages_to_list, backoff_create
@@ -16,6 +17,39 @@ OPENAI_TIMEOUT_EXCEPTIONS = (
     openai.APITimeoutError,
     openai.InternalServerError,
 )
+
+
+def _uses_openai_compatible_routing(model: str) -> bool:
+    return bool(os.getenv("OPENAI_BASE_URL")) and (
+        "claude" in model or "gemini" in model
+    )
+
+
+def _normalize_messages_for_openai_compatible_routing(
+    model: str, messages: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """Some relays reject system-only chat requests when proxying Claude/Gemini."""
+    if not _uses_openai_compatible_routing(model):
+        return messages
+
+    has_non_system_message = any(
+        message.get("role") in {"user", "assistant", "tool"} for message in messages
+    )
+    if has_non_system_message:
+        return messages
+
+    normalized_messages = []
+    for message in messages:
+        normalized_message = dict(message)
+        if normalized_message.get("role") == "system":
+            normalized_message["role"] = "user"
+        normalized_messages.append(normalized_message)
+
+    logger.info(
+        "Normalized system-only chat request to user role for OpenAI-compatible relay model %s",
+        model,
+    )
+    return normalized_messages
 
 def get_ai_client(model: str, max_retries=2) -> openai.OpenAI:
     if model.startswith("ollama/"):
@@ -38,6 +72,9 @@ def query(
     filtered_kwargs: dict = select_values(notnone, model_kwargs)  # type: ignore
 
     messages = opt_messages_to_list(system_message, user_message)
+    messages = _normalize_messages_for_openai_compatible_routing(
+        filtered_kwargs.get("model", ""), messages
+    )
 
     if func_spec is not None:
         filtered_kwargs["tools"] = [func_spec.as_openai_tool_dict]
