@@ -70,6 +70,23 @@ By default, the system uses the `OPENAI_API_KEY` environment variable for OpenAI
 
 By default, the system uses the `GEMINI_API_KEY` environment variable for Gemini models through OpenAI API.
 
+#### OpenAI-Compatible Proxy / Relay
+
+If you are using an OpenAI-compatible relay that exposes OpenAI, Claude, and Gemini models behind a single `/v1` endpoint, set:
+
+```bash
+export OPENAI_BASE_URL="https://hk.xty.app/v1"
+export OPENAI_API_KEY="YOUR_RELAY_KEY_HERE"
+```
+
+With `OPENAI_BASE_URL` configured, the code will route OpenAI models as usual, and will also send `claude-*` and `gemini-*` model names through the same OpenAI-compatible endpoint instead of using the Anthropic or Google-specific client setup.
+
+In that setup:
+
+- You do not need `GEMINI_API_KEY` for Gemini models routed through the relay.
+- You do not need AWS Bedrock credentials for Claude models routed through the relay.
+- The model name passed on the CLI or in config files must match a model name recognized by your relay.
+
 #### Claude Models via AWS Bedrock
 
 To use Claude models provided by Amazon Bedrock, install the necessary additional packages:
@@ -87,6 +104,7 @@ Our code can optionally use a Semantic Scholar API Key (`S2_API_KEY`) for higher
 Ensure you provide the necessary API keys as environment variables for the models you intend to use. For example:
 ```bash
 export OPENAI_API_KEY="YOUR_OPENAI_KEY_HERE"
+export OPENAI_BASE_URL="https://hk.xty.app/v1"  # optional, for OpenAI-compatible relays
 export S2_API_KEY="YOUR_S2_KEY_HERE"
 # Set AWS credentials if using Bedrock
 # export AWS_ACCESS_KEY_ID="YOUR_AWS_ACCESS_KEY_ID"
@@ -208,3 +226,98 @@ This project is licensed under **The AI Scientist Source Code License** (a deriv
 
 We recommend the following attribution in your paper's Abstract or Methods section:
 > "This manuscript was autonomously generated using [The AI Scientist](https://github.com/SakanaAI/AI-Scientist)."
+
+## 中文配置说明
+
+如果你直接使用 OpenAI 官方接口，设置 `OPENAI_API_KEY` 即可，例如：
+
+```bash
+export OPENAI_API_KEY="YOUR_OPENAI_KEY_HERE"
+```
+
+如果你使用的是 OpenAI 兼容中转，并且中转服务把 OpenAI、Claude、Gemini 都统一成了 OpenAI 风格接口，那么建议这样配置：
+
+```bash
+export OPENAI_BASE_URL="https://hk.xty.app/v1"
+export OPENAI_API_KEY="YOUR_RELAY_KEY_HERE"
+```
+
+此时：
+
+- `gpt-*`、`o1-*`、`o3-*` 会通过该中转地址调用。
+- `claude-*` 和 `gemini-*` 也会自动通过同一个中转地址调用。
+- 一般不需要再单独设置 `GEMINI_API_KEY`。
+- 如果 Claude 也走中转，一般不需要再配置 Bedrock 的 `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY`、`AWS_REGION_NAME`。
+
+请注意，你在命令行参数或配置文件中填写的模型名，必须是你的中转服务实际支持的名称。
+例如，默认配置里的 Bedrock 风格模型名 `anthropic.claude-3-5-sonnet-20241022-v2:0`，有些中转并不支持；这种情况下，请改成中转支持的模型名，例如 `claude-3-5-sonnet-20241022`。
+
+如果需要启用文献检索加速，可以额外配置：
+
+```bash
+export S2_API_KEY="YOUR_S2_KEY_HERE"
+```
+
+## 中文运行示例
+
+下面给出一组基于 OpenAI 兼容中转的最小运行示例。
+
+先配置环境变量：
+
+```bash
+export OPENAI_BASE_URL="https://hk.xty.app/v1"
+export OPENAI_API_KEY="YOUR_RELAY_KEY_HERE"
+export S2_API_KEY="YOUR_S2_KEY_HERE"  # 可选
+```
+
+### 1. 生成研究想法
+
+```bash
+python ai_scientist/perform_ideation_temp_free.py \
+  --workshop-file "ai_scientist/ideas/i_cant_believe_its_not_better.md" \
+  --model gpt-4o-2024-05-13 \
+  --max-num-generations 20 \
+  --num-reflections 5
+```
+
+如果你的中转支持 Claude 或 Gemini，也可以直接这样写模型名：
+
+```bash
+python ai_scientist/perform_ideation_temp_free.py \
+  --workshop-file "ai_scientist/ideas/i_cant_believe_its_not_better.md" \
+  --model claude-3-5-sonnet-20241022 \
+  --max-num-generations 20 \
+  --num-reflections 5
+```
+
+### 2. 启动主实验流程
+
+在运行前，建议先检查 `bfts_config.yaml` 里的模型名是否也是你的中转支持的名称，尤其是 `agent.code.model`。
+
+```bash
+python launch_scientist_bfts.py \
+  --load_ideas "ai_scientist/ideas/i_cant_believe_its_not_better.json" \
+  --load_code \
+  --add_dataset_ref \
+  --model_writeup o1-preview-2024-09-12 \
+  --model_citation gpt-4o-2024-11-20 \
+  --model_review gpt-4o-2024-11-20 \
+  --model_agg_plots o3-mini-2025-01-31 \
+  --num_cite_rounds 20
+```
+
+如果你希望把主流程里负责实验代码生成的模型也改成中转支持的 Claude，可以把 `bfts_config.yaml` 中的：
+
+```yaml
+agent:
+  code:
+    model: anthropic.claude-3-5-sonnet-20241022-v2:0
+```
+
+改成例如：
+
+```yaml
+agent:
+  code:
+    model: claude-3-5-sonnet-20241022
+```

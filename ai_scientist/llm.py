@@ -73,6 +73,13 @@ AVAILABLE_LLMS = [
 ]
 
 
+def uses_openai_compatible_routing(model: str) -> bool:
+    """Route Claude/Gemini model names through an OpenAI-compatible endpoint when configured."""
+    return bool(os.getenv("OPENAI_BASE_URL")) and (
+        "claude" in model or "gemini" in model
+    )
+
+
 # Get N responses from a single message, used for ensembling.
 @backoff.on_exception(
     backoff.expo,
@@ -115,7 +122,7 @@ def get_batch_responses_from_llm(
         new_msg_history = [
             new_msg_history + [{"role": "assistant", "content": c}] for c in content
         ]
-    elif "gpt" in model:
+    elif "gpt" in model or uses_openai_compatible_routing(model):
         new_msg_history = msg_history + [{"role": "user", "content": msg}]
         response = client.chat.completions.create(
             model=model,
@@ -226,7 +233,7 @@ def make_llm_call(client, model, temperature, system_message, prompt):
             n=1,
             stop=None,
         )
-    elif "gpt" in model:
+    elif "gpt" in model or uses_openai_compatible_routing(model):
         return client.chat.completions.create(
             model=model,
             messages=[
@@ -277,7 +284,7 @@ def get_response_from_llm(
     if msg_history is None:
         msg_history = []
 
-    if "claude" in model:
+    if "claude" in model and not uses_openai_compatible_routing(model):
         new_msg_history = msg_history + [
             {
                 "role": "user",
@@ -324,7 +331,7 @@ def get_response_from_llm(
         )
         content = response.choices[0].message.content
         new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
-    elif "gpt" in model:
+    elif "gpt" in model or uses_openai_compatible_routing(model):
         new_msg_history = msg_history + [{"role": "user", "content": msg}]
         response = make_llm_call(
             client,
@@ -478,7 +485,10 @@ def extract_json_between_markers(llm_output: str) -> dict | None:
 
 
 def create_client(model) -> tuple[Any, str]:
-    if model.startswith("claude-"):
+    if uses_openai_compatible_routing(model):
+        print(f"Using OpenAI-compatible API with model {model}.")
+        return openai.OpenAI(), model
+    elif model.startswith("claude-"):
         print(f"Using Anthropic API with model {model}.")
         return anthropic.Anthropic(), model
     elif model.startswith("bedrock") and "claude" in model:
